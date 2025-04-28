@@ -1,0 +1,13 @@
+import { CustomerReturnFlow } from "@/components/dashboard/returns/CustomerReturnFlow";
+
+export default function ReturnFlowDemo() {
+  return (
+    <div className="bg-white min-h-screen p-6">
+      <h1 className="text-2xl font-bold mb-6">Return Product Flow Demo</h1>
+      <CustomerReturnFlow 
+        onSuccess={() => console.log("Return processed successfully")} 
+        onCancel={() => console.log("Return cancelled")} 
+      />
+    </div>
+  );
+}
