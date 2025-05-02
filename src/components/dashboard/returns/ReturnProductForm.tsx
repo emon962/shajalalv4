@@ -40,6 +40,7 @@ type InvoiceItem = {
   unit_price: number;
   total_price: number;
   barcode?: string;
+  is_outer_product?: boolean;
 };
 
 type ExchangeProduct = {
@@ -344,6 +345,9 @@ export function ReturnProductForm({
       );
       if (!selectedItem) throw new Error("Selected item not found");
 
+      // Check if the item is an outer product (not in regular inventory)
+      const isOuterProduct = selectedItem.is_outer_product === true;
+
       // Verify if the exchange product has enough stock
       if (returnType === "exchange" && selectedExchangeProductId) {
         const exchangeProduct = exchangeProducts.find(
@@ -420,26 +424,29 @@ export function ReturnProductForm({
       const { data, error } = insertResult;
 
       // Update original product quantity (add back to inventory for refund)
-      const { data: productData, error: productError } = await supabase
-        .from("products")
-        .select("quantity")
-        .eq("id", selectedItem.product_id)
-        .single();
+      // Only update inventory for regular products (not outer products)
+      if (!selectedItem.is_outer_product) {
+        const { data: productData, error: productError } = await supabase
+          .from("products")
+          .select("quantity")
+          .eq("id", selectedItem.product_id)
+          .single();
 
-      if (productError) {
-        console.error("Error fetching product data:", productError);
-        throw new Error(
-          `Error fetching product data: ${productError.message || JSON.stringify(productError)}`,
-        );
+        if (productError) {
+          console.error("Error fetching product data:", productError);
+          throw new Error(
+            `Error fetching product data: ${productError.message || JSON.stringify(productError)}`,
+          );
+        }
+
+        await supabase
+          .from("products")
+          .update({
+            quantity: (productData.quantity || 0) + returnQuantity,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", selectedItem.product_id);
       }
-
-      await supabase
-        .from("products")
-        .update({
-          quantity: (productData.quantity || 0) + returnQuantity,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", selectedItem.product_id);
 
       // Add entry to product history
       await supabase.from("product_history").insert([
@@ -459,14 +466,26 @@ export function ReturnProductForm({
         );
 
         if (exchangeProduct) {
-          // Update product quantities
-          await supabase
-            .from("products")
-            .update({
-              quantity: exchangeProduct.quantity - returnQuantity,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", selectedExchangeProductId);
+          // Update product quantities - only for regular products
+          // For same product exchanges, we need to be careful with the quantity updates
+          if (isSameProductExchange) {
+            // For same product exchange, we don't need to decrease quantity since we already added it back
+            console.log(
+              "Same product exchange - no additional quantity updates needed",
+            );
+          } else {
+            // For different product exchange, decrease the quantity of the exchanged product
+            await supabase
+              .from("products")
+              .update({
+                quantity: Math.max(
+                  0,
+                  exchangeProduct.quantity - returnQuantity,
+                ),
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", selectedExchangeProductId);
+          }
 
           // Add to product history
           await supabase.from("product_history").insert([

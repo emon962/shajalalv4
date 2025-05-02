@@ -13,16 +13,24 @@ import {
 import { toast } from "@/components/ui/use-toast";
 import { CustomerSelection } from "../dashboard/sales/CustomerSelection";
 import { Card, CardContent } from "@/components/ui/card";
+import { useSearchParams } from "react-router-dom";
 
 export default function SellProduct() {
   const [shopId, setShopId] = useState<string>("");
   const [shops, setShops] = useState<{ id: string; name: string }[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [searchParams] = useSearchParams();
+  const prefilledCustomerName = searchParams.get("customer_name") || "";
+  const prefilledCustomerPhone = searchParams.get("customer_phone") || "";
 
   useEffect(() => {
     fetchShops();
-  }, []);
+
+    // Set customer info from URL params if available
+    if (prefilledCustomerName) setCustomerName(prefilledCustomerName);
+    if (prefilledCustomerPhone) setCustomerPhone(prefilledCustomerPhone);
+  }, [prefilledCustomerName, prefilledCustomerPhone]);
 
   async function fetchShops() {
     try {
@@ -52,14 +60,24 @@ export default function SellProduct() {
     setCustomerPhone(phone);
   };
 
+  // Determine page title based on whether we're adding to an existing invoice
+  const invoiceId = searchParams.get("invoice_id");
+  const pageTitle = invoiceId ? "Add Products to Invoice" : "Sell Product";
+  const pageDescription = invoiceId
+    ? "Add more products to an existing invoice"
+    : "Create a new sale and generate invoice";
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Sell Product</h1>
-          <p className="text-gray-500">
-            Create a new sale and generate invoice
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">{pageTitle}</h1>
+          <p className="text-gray-500">{pageDescription}</p>
+          {invoiceId && (
+            <p className="text-sm text-blue-600 mt-1">
+              Adding products to Invoice ID: {invoiceId}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -96,6 +114,8 @@ export default function SellProduct() {
               <CardContent className="pt-6">
                 <CustomerSelection
                   onCustomerSelected={handleCustomerSelected}
+                  initialName={prefilledCustomerName}
+                  initialPhone={prefilledCustomerPhone}
                 />
               </CardContent>
             </Card>

@@ -497,37 +497,82 @@ export function UnifiedSellProductForm({
         }
       }
 
-      const invoiceNumber = `SALE-${Date.now().toString().slice(-6)}`;
-      const paymentStatus =
-        parseFloat(advancePayment) <= 0
-          ? "unpaid"
-          : parseFloat(advancePayment) >= totalAmount
+      // Check if we're adding to an existing invoice
+      const urlParams = new URLSearchParams(window.location.search);
+      const existingInvoiceId = urlParams.get("invoice_id") || "";
+
+      // Create a variable to store the invoice number for new invoices
+      let invoiceNumber = `SALE-${Date.now().toString().slice(-6)}`;
+
+      if (existingInvoiceId) {
+        // Update existing invoice
+        invoiceNumber = existingInvoiceId;
+
+        // Get current invoice details
+        const { data: currentInvoice, error: invoiceError } = await supabase
+          .from("invoices")
+          .select("*")
+          .eq("id", existingInvoiceId)
+          .single();
+
+        if (invoiceError) throw invoiceError;
+
+        // Calculate new total amount
+        const newTotalAmount = currentInvoice.total_amount + totalAmount;
+        const newRemainingAmount =
+          newTotalAmount - currentInvoice.advance_payment;
+        const newStatus =
+          newRemainingAmount <= 0
             ? "paid"
-            : "partially_paid";
+            : newRemainingAmount < newTotalAmount
+              ? "partially_paid"
+              : "unpaid";
 
-      // Create the invoice
-      const { data: invoiceData, error: invoiceError } = await supabase
-        .from("invoices")
-        .insert({
-          invoice_number: invoiceNumber,
-          total_amount: totalAmount,
-          advance_payment: parseFloat(advancePayment) || 0,
-          remaining_amount: remainingAmount,
-          status: paymentStatus,
-          shop_id: shopId,
-          customer_name: customerName || null,
-          customer_phone: customerPhone || null,
-          customer_id: customerId,
-          invoice_type: "sales",
-          notes: `Discount: ${discountAmount.toFixed(2)}, Tax: ${taxAmount.toFixed(2)}`,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select();
+        // Update the invoice
+        const { error: updateError } = await supabase
+          .from("invoices")
+          .update({
+            total_amount: newTotalAmount,
+            remaining_amount: newRemainingAmount,
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+            notes: `${currentInvoice.notes || ""} | Additional items added: Discount: ${discountAmount.toFixed(2)}, Tax: ${taxAmount.toFixed(2)}`,
+          })
+          .eq("id", existingInvoiceId);
 
-      if (invoiceError) throw invoiceError;
+        if (updateError) throw updateError;
+      } else {
+        // Determine payment status based on remaining amount
+        const paymentStatus =
+          parseFloat(advancePayment) >= totalAmount
+            ? "paid"
+            : parseFloat(advancePayment) > 0
+              ? "partially_paid"
+              : "unpaid";
 
-      const invoiceId = invoiceData[0].id;
+        // Create new invoice
+        const { data: invoiceData, error: invoiceError } = await supabase
+          .from("invoices")
+          .insert({
+            invoice_number: invoiceNumber,
+            total_amount: totalAmount,
+            advance_payment: parseFloat(advancePayment) || 0,
+            remaining_amount: remainingAmount,
+            status: paymentStatus,
+            shop_id: shopId,
+            customer_name: customerName || null,
+            customer_phone: customerPhone || null,
+            customer_id: customerId,
+            invoice_type: "sales",
+            notes: `Discount: ${discountAmount.toFixed(2)}, Tax: ${taxAmount.toFixed(2)}`,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select();
+
+        if (invoiceError) throw invoiceError;
+        invoiceNumber = invoiceData[0].invoice_number;
+      }
 
       // Process regular products (update inventory)
       const regularProducts = cartItems.filter(
@@ -553,27 +598,71 @@ export function UnifiedSellProductForm({
       // We're intentionally not adding outer products to the products table
       // This is to keep them separate from the regular inventory
 
+      // Get the invoice ID (either from existing or newly created invoice)
+      let invoiceId;
+      if (existingInvoiceId) {
+        invoiceId = existingInvoiceId;
+      } else if (
+        typeof invoiceData !== "undefined" &&
+        invoiceData &&
+        invoiceData.length > 0 &&
+        invoiceData[0] &&
+        invoiceData[0].id
+      ) {
+        invoiceId = invoiceData[0].id;
+      } else {
+        // If we can't get the invoice ID from invoiceData, try to fetch it using the invoice number
+        try {
+          const { data: fetchedInvoice, error: fetchError } = await supabase
+            .from("invoices")
+            .select("id")
+            .eq("invoice_number", invoiceNumber)
+            .single();
+
+          if (fetchError || !fetchedInvoice) {
+            throw new Error(
+              `Failed to get invoice ID for invoice number ${invoiceNumber}`,
+            );
+          }
+
+          invoiceId = fetchedInvoice.id;
+        } catch (fetchError) {
+          console.error("Error fetching invoice ID:", fetchError);
+          throw new Error(
+            `Failed to get invoice ID: ${fetchError.message || "Unknown error"}`,
+          );
+        }
+      }
+
       // Create invoice items for all products
-      const invoiceItems = cartItems.map((item) => ({
-        invoice_id: invoiceId,
-        product_id: item.type === "regular" ? item.product_id : null,
-        quantity: item.quantity,
-        unit_price: item.selling_price,
-        total_price: item.subtotal,
-        supplier_name: item.supplier_name || "Unknown Supplier",
-        created_at: new Date().toISOString(),
-        product_name: item.name || "Unknown Product",
-        barcode: item.barcode || "",
-        watt: item.watt ? parseFloat(item.watt) : null,
-        discount: item.discount || 0,
-        discount_type: item.discount_type || "percentage",
-        discount_amount: item.discount_amount || 0,
-        is_outer_product: item.type === "outer",
-        buying_price: item.buying_price || 0,
-        size: item.size || null,
-        color: item.color || null,
-        model: item.model || null,
-      }));
+      const invoiceItems = cartItems.map((item) => {
+        // For outer products, only record profit if payment is received
+        const recordedBuyingPrice =
+          item.type === "outer" && parseFloat(advancePayment) <= 0
+            ? item.selling_price // Temporarily set buying price equal to selling price (no profit)
+            : item.buying_price || 0;
+
+        return {
+          invoice_id: invoiceId,
+          product_id: item.type === "regular" ? item.product_id : null,
+          quantity: item.quantity,
+          unit_price: item.selling_price,
+          total_price: item.subtotal,
+          supplier_name: item.supplier_name || "Unknown Supplier",
+          created_at: new Date().toISOString(),
+          product_name: item.name || "Unknown Product",
+          barcode: item.barcode || "",
+          watt: item.watt ? parseFloat(item.watt) : null,
+          discount: item.discount || 0,
+          discount_type: item.discount_type || "percentage",
+          discount_amount: item.discount_amount || 0,
+          is_outer_product: item.type === "outer",
+          buying_price: recordedBuyingPrice,
+          size: item.size || null,
+          color: item.color || null,
+          model: item.model || null,
+        };
+      });
 
       const { error: itemsError } = await supabase
         .from("invoice_items")
@@ -582,11 +671,15 @@ export function UnifiedSellProductForm({
       if (itemsError) throw itemsError;
 
       toast({
-        title: "Sale completed",
-        description: `Invoice #${invoiceNumber} has been generated successfully`,
+        title: existingInvoiceId
+          ? "Products added to invoice"
+          : "Sale completed",
+        description: existingInvoiceId
+          ? "Products have been added to the existing invoice successfully"
+          : `Invoice #${invoiceNumber} has been generated successfully`,
       });
 
-      navigate(`/dashboard/invoices/${invoiceId}`);
+      navigate(`/dashboard/invoices/${invoiceNumber}`);
     } catch (error) {
       console.error("Error processing sale:", error);
       let errorMessage = "An unknown error occurred";
@@ -1477,22 +1570,29 @@ export function UnifiedSellProductForm({
                             </span>
                           </div>
 
-                          {/* Estimated Profit */}
+                          {/* Estimated Profit - Only shown after payment is received */}
                           <div className="flex justify-between text-base">
                             <span className="text-blue-700 font-medium">
-                              Estimated Profit:
+                              {parseFloat(advancePayment) > 0
+                                ? "Actual Profit:"
+                                : "Estimated Profit:"}
                             </span>
                             <span className="font-medium text-green-600">
                               $
-                              {cartItems
-                                .reduce((sum, item) => {
-                                  const revenue =
-                                    item.subtotal - item.discount_amount;
-                                  const cost =
-                                    item.buying_price * item.quantity;
-                                  return sum + (revenue - cost);
-                                }, 0)
-                                .toFixed(2)}
+                              {parseFloat(advancePayment) > 0
+                                ? // Only calculate actual profit if payment is received
+                                  Math.min(
+                                    parseFloat(advancePayment),
+                                    cartItems.reduce((sum, item) => {
+                                      const revenue =
+                                        item.subtotal - item.discount_amount;
+                                      const cost =
+                                        item.buying_price * item.quantity;
+                                      return sum + (revenue - cost);
+                                    }, 0),
+                                  ).toFixed(2)
+                                : // Otherwise show as estimated
+                                  "0.00 (pending payment)"}
                             </span>
                           </div>
 
@@ -1521,7 +1621,12 @@ export function UnifiedSellProductForm({
                       <Button
                         type="submit"
                         className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
-                        disabled={loading || cartItems.length === 0}
+                        disabled={
+                          loading ||
+                          cartItems.length === 0 ||
+                          !customerName ||
+                          !customerPhone
+                        }
                       >
                         {loading ? (
                           <span className="flex items-center gap-2">

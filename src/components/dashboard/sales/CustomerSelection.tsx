@@ -28,13 +28,17 @@ type Customer = {
 
 interface CustomerSelectionProps {
   onCustomerSelected: (name: string, phone: string) => void;
+  initialName?: string;
+  initialPhone?: string;
 }
 
 export function CustomerSelection({
   onCustomerSelected,
+  initialName = "",
+  initialPhone = "",
 }: CustomerSelectionProps) {
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerName, setCustomerName] = useState(initialName);
+  const [customerPhone, setCustomerPhone] = useState(initialPhone);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
@@ -42,7 +46,22 @@ export function CustomerSelection({
 
   useEffect(() => {
     fetchCustomers();
+
+    // If initial values are provided, notify parent component
+    if (initialName || initialPhone) {
+      onCustomerSelected(initialName, initialPhone);
+    }
   }, []);
+
+  // Update local state if props change
+  useEffect(() => {
+    if (initialName !== customerName) {
+      setCustomerName(initialName);
+    }
+    if (initialPhone !== customerPhone) {
+      setCustomerPhone(initialPhone);
+    }
+  }, [initialName, initialPhone]);
 
   async function fetchCustomers() {
     try {

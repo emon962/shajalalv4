@@ -14,6 +14,9 @@ import {
   Edit2,
   Save,
   X,
+  ShoppingCart,
+  FileText,
+  Trash2,
 } from "lucide-react";
 import { usePDF } from "react-to-pdf";
 import { ReturnForm } from "../returns/ReturnForm";
@@ -25,6 +28,16 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -90,6 +103,8 @@ export function InvoiceDetail() {
   const [isReturnDialogOpen, setIsReturnDialogOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const { toPDF, targetRef } = usePDF({
     filename: `invoice-${invoice?.invoice_number}.pdf`,
@@ -533,6 +548,12 @@ export function InvoiceDetail() {
     return discountMatch ? parseFloat(discountMatch[1]) : 0;
   };
 
+  const getTaxAmount = () => {
+    if (!editedInvoice?.notes) return 0;
+    const taxMatch = editedInvoice.notes.match(/Tax: ([\d.]+)/);
+    return taxMatch ? parseFloat(taxMatch[1]) : 0;
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -640,13 +661,26 @@ export function InvoiceDetail() {
                 <Printer className="h-3 w-3" /> Print
               </Button>
               {invoice.invoice_type === "sales" && (
-                <Button
-                  variant="outline"
-                  onClick={() => setIsReturnDialogOpen(true)}
-                  className="flex items-center gap-1 border-orange-600 text-orange-600 hover:bg-orange-50 text-xs p-2"
-                >
-                  <RotateCcw className="h-3 w-3" /> Return
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsReturnDialogOpen(true)}
+                    className="flex items-center gap-1 border-orange-600 text-orange-600 hover:bg-orange-50 text-xs p-2"
+                  >
+                    <RotateCcw className="h-3 w-3" /> Return
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      navigate(
+                        `/dashboard/sell-product?invoice_id=${invoice.id}&customer_id=${invoice.customer_id || ""}&customer_name=${invoice.customer_name || ""}&customer_phone=${invoice.customer_phone || ""}&advance_payment=${invoice.advance_payment || 0}&remaining_amount=${invoice.remaining_amount || 0}`,
+                      )
+                    }
+                    className="flex items-center gap-1 border-green-600 text-green-600 hover:bg-green-50 text-xs p-2"
+                  >
+                    <ShoppingCart className="h-3 w-3" /> Add More Products
+                  </Button>
+                </>
               )}
               <Button
                 onClick={() => toPDF()}
@@ -660,6 +694,13 @@ export function InvoiceDetail() {
                 className="flex items-center gap-1 text-xs p-2"
               >
                 <Edit2 className="h-3 w-3" /> Edit
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setIsDeleteDialogOpen(true)}
+                className="flex items-center gap-1 text-xs p-2 border-red-600 text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="h-3 w-3" /> Delete
               </Button>
             </>
           )}
@@ -1055,7 +1096,15 @@ export function InvoiceDetail() {
               {discountAmount > 0 && (
                 <div className="flex justify-between py-1">
                   <span className="font-semibold">Discount:</span>
-                  <span>-${discountAmount.toFixed(2)}</span>
+                  <span className="text-green-600">
+                    -${discountAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {getTaxAmount() > 0 && (
+                <div className="flex justify-between py-1">
+                  <span className="font-semibold">Tax:</span>
+                  <span>${getTaxAmount().toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between py-1 border-t border-gray-300">
@@ -1079,7 +1128,10 @@ export function InvoiceDetail() {
                     min="0"
                   />
                 ) : (
-                  <span>${editedInvoice.advance_payment.toFixed(2)} ({advancePercentage.toFixed(2)}%)</span>
+                  <span>
+                    ${editedInvoice.advance_payment.toFixed(2)} (
+                    {advancePercentage.toFixed(2)}%)
+                  </span>
                 )}
               </div>
               <div className="flex justify-between py-1 border-t border-gray-300">
@@ -1208,6 +1260,82 @@ export function InvoiceDetail() {
           />
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Are you sure you want to delete this invoice?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This action will permanently delete Invoice #
+              {invoice?.invoice_number}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!id) return;
+
+                try {
+                  setIsDeleting(true);
+
+                  // First delete related invoice items
+                  const { error: itemsError } = await supabase
+                    .from("invoice_items")
+                    .delete()
+                    .eq("invoice_id", id);
+
+                  if (itemsError) throw itemsError;
+
+                  // Then delete related payments
+                  const { error: paymentsError } = await supabase
+                    .from("payments")
+                    .delete()
+                    .eq("invoice_id", id);
+
+                  if (paymentsError) throw paymentsError;
+
+                  // Finally delete the invoice itself
+                  const { error: invoiceError } = await supabase
+                    .from("invoices")
+                    .delete()
+                    .eq("id", id);
+
+                  if (invoiceError) throw invoiceError;
+
+                  toast({
+                    title: "Invoice deleted",
+                    description: `Invoice #${invoice?.invoice_number} has been successfully deleted.`,
+                  });
+
+                  navigate("/dashboard/invoices");
+                } catch (error) {
+                  console.error("Error deleting invoice:", error);
+                  toast({
+                    variant: "destructive",
+                    title: "Error deleting invoice",
+                    description:
+                      error instanceof Error ? error.message : String(error),
+                  });
+                } finally {
+                  setIsDeleting(false);
+                  setIsDeleteDialogOpen(false);
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={isDeleting}
+            >
+              {isDeleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

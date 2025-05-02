@@ -546,6 +546,8 @@ export function SellProductForm() {
                 <CardContent className="pt-6">
                   <CustomerSelection
                     onCustomerSelected={handleCustomerSelected}
+                    initialName={prefilledCustomerName}
+                    initialPhone={prefilledCustomerPhone}
                   />
                 </CardContent>
               </Card>
@@ -909,7 +911,12 @@ export function SellProductForm() {
                     <Button
                       type="submit"
                       className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
-                      disabled={loading || cartItems.length === 0}
+                      disabled={
+                        loading ||
+                        cartItems.length === 0 ||
+                        !customerName ||
+                        !customerPhone
+                      }
                     >
                       {loading ? (
                         <span className="flex items-center gap-2">
