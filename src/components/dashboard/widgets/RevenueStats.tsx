@@ -458,38 +458,157 @@ export function RevenueStats() {
         {} as { [key: string]: number },
       );
 
-      // Get outer product income for the current period to exclude from regular income
-      const { data: currentOuterItems } = await supabase
+      // Get all invoice items for the current period
+      const { data: currentInvoiceItems } = await supabase
         .from("invoice_items")
-        .select("invoice_id, total_price, discount_amount")
-        .eq("is_outer_product", true)
+        .select(
+          "invoice_id, total_price, discount_amount, is_outer_product, buying_price, quantity",
+        )
         .gte("created_at", currentStartStr)
         .lte("created_at", currentEndStr);
 
-      // Map of invoice IDs that contain outer products
-      const outerProductInvoiceIds = (currentOuterItems || []).reduce(
+      // Group invoice items by invoice_id and type (outer vs regular)
+      const invoiceItemsMap = (currentInvoiceItems || []).reduce(
         (acc, item) => {
-          acc[item.invoice_id] = true;
+          if (!acc[item.invoice_id]) {
+            acc[item.invoice_id] = {
+              outer: [],
+              regular: [],
+            };
+          }
+
+          if (item.is_outer_product) {
+            acc[item.invoice_id].outer.push(item);
+          } else {
+            acc[item.invoice_id].regular.push(item);
+          }
+
           return acc;
         },
-        {} as { [key: string]: boolean },
+        {} as { [key: string]: { outer: any[]; regular: any[] } },
       );
 
-      // Calculate regular income (excluding outer product invoices)
-      const currentIncome = (salesInvoices || []).reduce((sum, invoice) => {
-        // Skip invoices that contain outer products
-        if (outerProductInvoiceIds[invoice.id]) return sum;
+      // Calculate income based on payments received
+      let currentRegularIncome = 0;
+      let currentOuterIncome = 0;
 
+      // Process all sales invoices
+      (salesInvoices || []).forEach((invoice) => {
+        const advancePayment = Number(invoice.advance_payment || 0);
         const paymentsReceived = currentPaymentMap[invoice.id] || 0;
-        const advance = Number(invoice.advance_payment || 0);
-        return sum + paymentsReceived + advance;
-      }, 0);
+        const totalPaymentReceived = advancePayment + paymentsReceived;
 
-      const prevIncome = (prevSalesInvoices || []).reduce((sum, invoice) => {
+        if (totalPaymentReceived <= 0) return; // Skip if no payment received
+
+        const invoiceItems = invoiceItemsMap[invoice.id] || {
+          outer: [],
+          regular: [],
+        };
+
+        // Calculate total invoice value
+        const regularItemsTotal = invoiceItems.regular.reduce(
+          (sum, item) => sum + (item.total_price - (item.discount_amount || 0)),
+          0,
+        );
+
+        const outerItemsTotal = invoiceItems.outer.reduce(
+          (sum, item) => sum + (item.total_price - (item.discount_amount || 0)),
+          0,
+        );
+
+        const invoiceTotal = regularItemsTotal + outerItemsTotal;
+
+        if (invoiceTotal <= 0) return; // Skip if invoice has no value
+
+        // For regular products, distribute payment proportionally
+        if (regularItemsTotal > 0) {
+          const regularProportion = regularItemsTotal / invoiceTotal;
+          currentRegularIncome += totalPaymentReceived * regularProportion;
+        }
+
+        // For outer products, only count income when payment is received
+        // The full payment amount is distributed proportionally to outer products
+        if (outerItemsTotal > 0) {
+          const outerProportion = outerItemsTotal / invoiceTotal;
+          currentOuterIncome += totalPaymentReceived * outerProportion;
+        }
+      });
+
+      const currentIncome = currentRegularIncome + currentOuterIncome;
+
+      // Calculate previous period income using the same logic
+      let prevRegularIncome = 0;
+      let prevOuterIncome = 0;
+
+      // Get previous period invoice items
+      const { data: prevInvoiceItems } = await supabase
+        .from("invoice_items")
+        .select("invoice_id, total_price, discount_amount, is_outer_product")
+        .gte("created_at", prevStartStr)
+        .lte("created_at", prevEndStr);
+
+      // Group previous period invoice items
+      const prevInvoiceItemsMap = (prevInvoiceItems || []).reduce(
+        (acc, item) => {
+          if (!acc[item.invoice_id]) {
+            acc[item.invoice_id] = {
+              outer: [],
+              regular: [],
+            };
+          }
+
+          if (item.is_outer_product) {
+            acc[item.invoice_id].outer.push(item);
+          } else {
+            acc[item.invoice_id].regular.push(item);
+          }
+
+          return acc;
+        },
+        {} as { [key: string]: { outer: any[]; regular: any[] } },
+      );
+
+      // Process previous sales invoices
+      (prevSalesInvoices || []).forEach((invoice) => {
+        const advancePayment = Number(invoice.advance_payment || 0);
         const paymentsReceived = prevPaymentMap[invoice.id] || 0;
-        const advance = Number(invoice.advance_payment || 0);
-        return sum + paymentsReceived + advance;
-      }, 0);
+        const totalPaymentReceived = advancePayment + paymentsReceived;
+
+        if (totalPaymentReceived <= 0) return; // Skip if no payment received
+
+        const invoiceItems = prevInvoiceItemsMap[invoice.id] || {
+          outer: [],
+          regular: [],
+        };
+
+        // Calculate total invoice value
+        const regularItemsTotal = invoiceItems.regular.reduce(
+          (sum, item) => sum + (item.total_price - (item.discount_amount || 0)),
+          0,
+        );
+
+        const outerItemsTotal = invoiceItems.outer.reduce(
+          (sum, item) => sum + (item.total_price - (item.discount_amount || 0)),
+          0,
+        );
+
+        const invoiceTotal = regularItemsTotal + outerItemsTotal;
+
+        if (invoiceTotal <= 0) return; // Skip if invoice has no value
+
+        // Distribute payment proportionally between regular and outer products
+        if (regularItemsTotal > 0) {
+          const regularProportion = regularItemsTotal / invoiceTotal;
+          prevRegularIncome += totalPaymentReceived * regularProportion;
+        }
+
+        if (outerItemsTotal > 0) {
+          const outerProportion = outerItemsTotal / invoiceTotal;
+          prevOuterIncome += totalPaymentReceived * outerProportion;
+        }
+      });
+
+      const prevIncome = prevRegularIncome + prevOuterIncome;
 
       setDailyIncome(currentIncome);
 

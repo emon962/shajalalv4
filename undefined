@@ -1,13 +1,74 @@
-import { CustomerReturnFlow } from "@/components/dashboard/returns/CustomerReturnFlow";
+import { UnifiedSellProductForm } from "@/components/dashboard/sales/UnifiedSellProductForm";
+import { FinancialSummary } from "@/components/dashboard/widgets/FinancialSummary";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function ReturnFlowDemo() {
+export default function FixedSalesAndInvoiceStoryboard() {
   return (
-    <div className="bg-white min-h-screen p-6">
-      <h1 className="text-2xl font-bold mb-6">Return Product Flow Demo</h1>
-      <CustomerReturnFlow 
-        onSuccess={() => console.log("Return processed successfully")} 
-        onCancel={() => console.log("Return cancelled")} 
-      />
+    <div className="bg-white p-6">
+      <h1 className="text-2xl font-bold mb-6">Sales & Invoice System Fixes</h1>
+      
+      <Tabs defaultValue="issues" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="issues">Fixed Issues</TabsTrigger>
+          <TabsTrigger value="demo">Demo Components</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="issues" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Issues Fixed</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+                  <h3 className="font-medium text-green-800 mb-2">Issue 1: Outer Product Income Calculation</h3>
+                  <p className="text-green-700">Fixed: Income for outer products is now calculated based on actual payments received rather than at the time of sale.</p>
+                </div>
+                
+                <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+                  <h3 className="font-medium text-green-800 mb-2">Issue 2: Invoice Payment Tracking</h3>
+                  <p className="text-green-700">Fixed: Advance payments are now properly recorded in the payments table and linked to the invoice.</p>
+                </div>
+                
+                <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+                  <h3 className="font-medium text-green-800 mb-2">Issue 3: Dashboard Income Calculation</h3>
+                  <p className="text-green-700">Fixed: The Financial Summary widget now calculates income based on actual payments received rather than total invoice amounts.</p>
+                </div>
+                
+                <div className="p-4 bg-green-50 border border-green-200 rounded-md">
+                  <h3 className="font-medium text-green-800 mb-2">Issue 4: Invoice Redirection</h3>
+                  <p className="text-green-700">Fixed: After creating a sale invoice, the system now redirects to the invoice using the invoice ID instead of the invoice number to avoid UUID syntax errors.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="demo" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Sales Form</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-500 mb-4">The sales form now properly records payments and calculates income based on actual payments received.</p>
+              <div className="border p-4 rounded-md">
+                <p className="text-sm text-gray-500">Sales form would appear here in the actual application</p>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Financial Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-500 mb-4">The financial summary now calculates income based on actual payments received.</p>
+              <FinancialSummary />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

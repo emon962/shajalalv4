@@ -1068,6 +1068,11 @@ export function InvoiceDetail() {
                               item.total_price -
                               item.buying_price * item.quantity
                             ).toFixed(2)}
+                            {invoice.status !== "paid" && (
+                              <span className="text-amber-500 ml-1">
+                                (on payment)
+                              </span>
+                            )}
                           </p>
                         )}
                       </td>
@@ -1129,8 +1134,12 @@ export function InvoiceDetail() {
                   />
                 ) : (
                   <span>
-                    ${editedInvoice.advance_payment.toFixed(2)} (
-                    {advancePercentage.toFixed(2)}%)
+                    $
+                    {(
+                      editedInvoice.total_amount -
+                      editedInvoice.remaining_amount
+                    ).toFixed(2)}{" "}
+                    ({advancePercentage.toFixed(2)}%)
                   </span>
                 )}
               </div>

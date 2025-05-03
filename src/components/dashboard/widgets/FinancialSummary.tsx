@@ -1,145 +1,215 @@
-import { useState, useEffect } from "react";
-import { supabase } from "../../../../supabase/supabase";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { supabase } from "../../../../supabase/supabase";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowUpRight,
   ArrowDownRight,
   DollarSign,
-  Package,
+  TrendingUp,
 } from "lucide-react";
 
-export function FinancialSummary() {
-  const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState({
-    regularProducts: {
-      revenue: 0,
-      cost: 0,
-      profit: 0,
-      count: 0,
-    },
-    outerProducts: {
-      revenue: 0,
-      cost: 0,
-      profit: 0,
-      count: 0,
-    },
-    combined: {
-      revenue: 0,
-      cost: 0,
-      profit: 0,
-      count: 0,
-    },
-    timeRange: "all",
+interface FinancialData {
+  totalSales: number;
+  totalCosts: number;
+  totalProfit: number;
+  totalOuterSales: number;
+  totalOuterCosts: number;
+  totalOuterProfit: number;
+  totalRegularSales: number;
+  totalRegularCosts: number;
+  totalRegularProfit: number;
+  pendingPayments: number;
+  receivedPayments: number;
+}
+
+export default function FinancialSummary() {
+  const [financialData, setFinancialData] = useState<FinancialData>({
+    totalSales: 0,
+    totalCosts: 0,
+    totalProfit: 0,
+    totalOuterSales: 0,
+    totalOuterCosts: 0,
+    totalOuterProfit: 0,
+    totalRegularSales: 0,
+    totalRegularCosts: 0,
+    totalRegularProfit: 0,
+    pendingPayments: 0,
+    receivedPayments: 0,
   });
+  const [timeframe, setTimeframe] = useState<
+    "today" | "week" | "month" | "all"
+  >("month");
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetchFinancialSummary(summary.timeRange);
-  }, [summary.timeRange]);
+    fetchFinancialData();
+  }, [timeframe]);
 
-  const fetchFinancialSummary = async (timeRange: string) => {
+  const fetchFinancialData = async () => {
+    setIsLoading(true);
     try {
-      setLoading(true);
-
-      // Define date range based on selected time range
-      let dateFilter = {};
-      const now = new Date();
-      if (timeRange === "today") {
-        const today = new Date().toISOString().split("T")[0];
-        dateFilter = { gte: `${today}T00:00:00`, lte: `${today}T23:59:59` };
-      } else if (timeRange === "week") {
-        const weekAgo = new Date(now.setDate(now.getDate() - 7)).toISOString();
-        dateFilter = { gte: weekAgo };
-      } else if (timeRange === "month") {
-        const monthAgo = new Date(
-          now.setMonth(now.getMonth() - 1),
-        ).toISOString();
-        dateFilter = { gte: monthAgo };
+      // Get date range based on timeframe
+      let startDate = new Date();
+      if (timeframe === "today") {
+        startDate.setHours(0, 0, 0, 0);
+      } else if (timeframe === "week") {
+        startDate.setDate(startDate.getDate() - 7);
+      } else if (timeframe === "month") {
+        startDate.setMonth(startDate.getMonth() - 1);
+      } else {
+        // All time - no filter
+        startDate = new Date(0); // January 1, 1970
       }
 
-      // Fetch invoice items with product details
-      let query = supabase.from("invoice_items").select(`
-        id,
-        invoice_id,
-        product_id,
-        quantity,
-        unit_price,
-        total_price,
-        buying_price,
-        is_outer_product,
-        invoices:invoice_id(created_at, invoice_type)
-      `);
+      const startDateStr = startDate.toISOString();
 
-      // Apply date filter if not "all"
-      if (timeRange !== "all") {
-        query = query.filter("invoices.created_at", dateFilter);
-      }
+      // Get all invoices for the period
+      const { data: invoices, error: invoicesError } = await supabase
+        .from("invoices")
+        .select("*")
+        .gte("created_at", startDateStr);
 
-      // Only include sales invoices
-      query = query.filter("invoices.invoice_type", "eq", "sales");
+      if (invoicesError) throw invoicesError;
 
-      const { data: invoiceItems, error } = await query;
+      // Get all invoice items for the period
+      const { data: invoiceItems, error: invoiceItemsError } = await supabase
+        .from("invoice_items")
+        .select("*")
+        .gte("created_at", startDateStr);
 
-      if (error) throw error;
+      if (invoiceItemsError) throw invoiceItemsError;
 
-      // Calculate financial metrics
-      let regularRevenue = 0;
-      let regularCost = 0;
-      let regularCount = 0;
-      let outerRevenue = 0;
-      let outerCost = 0;
-      let outerCount = 0;
+      // Get all payments for the period
+      const { data: payments, error: paymentsError } = await supabase
+        .from("payments")
+        .select("*")
+        .gte("payment_date", startDateStr);
 
-      invoiceItems?.forEach((item) => {
-        if (item.is_outer_product) {
-          outerRevenue += item.total_price || 0;
-          outerCost += (item.buying_price || 0) * (item.quantity || 0);
-          outerCount++;
-        } else {
-          regularRevenue += item.total_price || 0;
-          regularCost += (item.buying_price || 0) * (item.quantity || 0);
-          regularCount++;
+      if (paymentsError) throw paymentsError;
+
+      // Create a map of invoice_id to total payments received (including advance payments)
+      const paymentsByInvoice = {};
+
+      // First add advance payments from invoices
+      (invoices || []).forEach((invoice) => {
+        paymentsByInvoice[invoice.id] = Number(invoice.advance_payment || 0);
+      });
+
+      // Then add additional payments
+      (payments || []).forEach((payment) => {
+        if (payment.invoice_id) {
+          paymentsByInvoice[payment.invoice_id] =
+            (paymentsByInvoice[payment.invoice_id] || 0) +
+            Number(payment.amount || 0);
         }
       });
 
-      const regularProfit = regularRevenue - regularCost;
-      const outerProfit = outerRevenue - outerCost;
-      const combinedRevenue = regularRevenue + outerRevenue;
-      const combinedCost = regularCost + outerCost;
-      const combinedProfit = regularProfit + outerProfit;
-      const combinedCount = regularCount + outerCount;
+      // Group invoice items by invoice_id
+      const invoiceItemsByInvoice = {};
+      (invoiceItems || []).forEach((item) => {
+        if (!invoiceItemsByInvoice[item.invoice_id]) {
+          invoiceItemsByInvoice[item.invoice_id] = [];
+        }
+        invoiceItemsByInvoice[item.invoice_id].push(item);
+      });
 
-      setSummary({
-        regularProducts: {
-          revenue: regularRevenue,
-          cost: regularCost,
-          profit: regularProfit,
-          count: regularCount,
-        },
-        outerProducts: {
-          revenue: outerRevenue,
-          cost: outerCost,
-          profit: outerProfit,
-          count: outerCount,
-        },
-        combined: {
-          revenue: combinedRevenue,
-          cost: combinedCost,
-          profit: combinedProfit,
-          count: combinedCount,
-        },
-        timeRange,
+      // Initialize financial metrics
+      let totalRegularSales = 0;
+      let totalRegularCosts = 0;
+      let totalOuterSales = 0;
+      let totalOuterCosts = 0;
+      let pendingPayments = 0;
+      let receivedPayments = 0;
+
+      // Process each invoice
+      (invoices || []).forEach((invoice) => {
+        const invoiceId = invoice.id;
+        const items = invoiceItemsByInvoice[invoiceId] || [];
+        const totalPaymentReceived = paymentsByInvoice[invoiceId] || 0;
+
+        // Track received vs pending payments
+        receivedPayments += totalPaymentReceived;
+        pendingPayments += Math.max(
+          0,
+          invoice.total_amount - totalPaymentReceived,
+        );
+
+        // Skip if no payment received
+        if (totalPaymentReceived <= 0) return;
+
+        // Calculate total invoice value and separate regular vs outer products
+        let regularItemsTotal = 0;
+        let outerItemsTotal = 0;
+        let regularItemsCost = 0;
+        let outerItemsCost = 0;
+
+        items.forEach((item) => {
+          const itemTotal = item.total_price - (item.discount_amount || 0);
+          const itemCost = item.buying_price * item.quantity;
+
+          if (item.is_outer_product) {
+            outerItemsTotal += itemTotal;
+            outerItemsCost += itemCost;
+          } else {
+            regularItemsTotal += itemTotal;
+            regularItemsCost += itemCost;
+          }
+        });
+
+        const invoiceTotal = regularItemsTotal + outerItemsTotal;
+
+        // Skip if invoice has no value
+        if (invoiceTotal <= 0) return;
+
+        // Calculate payment ratio - how much of the invoice has been paid
+        const paymentRatio = Math.min(
+          1,
+          totalPaymentReceived / invoice.total_amount,
+        );
+
+        // Distribute payment proportionally between regular and outer products
+        if (regularItemsTotal > 0) {
+          const regularProportion = regularItemsTotal / invoiceTotal;
+          const regularPaymentShare = totalPaymentReceived * regularProportion;
+          totalRegularSales += regularPaymentShare;
+          totalRegularCosts += regularItemsCost * paymentRatio;
+        }
+
+        if (outerItemsTotal > 0) {
+          const outerProportion = outerItemsTotal / invoiceTotal;
+          const outerPaymentShare = totalPaymentReceived * outerProportion;
+          totalOuterSales += outerPaymentShare;
+          totalOuterCosts += outerItemsCost * paymentRatio;
+        }
+      });
+
+      // Calculate totals and profits
+      const totalSales = totalRegularSales + totalOuterSales;
+      const totalCosts = totalRegularCosts + totalOuterCosts;
+      const totalProfit = totalSales - totalCosts;
+      const totalRegularProfit = totalRegularSales - totalRegularCosts;
+      const totalOuterProfit = totalOuterSales - totalOuterCosts;
+
+      setFinancialData({
+        totalSales,
+        totalCosts,
+        totalProfit,
+        totalOuterSales,
+        totalOuterCosts,
+        totalOuterProfit,
+        totalRegularSales,
+        totalRegularCosts,
+        totalRegularProfit,
+        pendingPayments,
+        receivedPayments,
       });
     } catch (error) {
-      console.error("Error fetching financial summary:", error);
+      console.error("Error fetching financial data:", error);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  };
-
-  const handleTimeRangeChange = (value: string) => {
-    setSummary({ ...summary, timeRange: value });
   };
 
   const formatCurrency = (amount: number) => {
@@ -150,238 +220,290 @@ export function FinancialSummary() {
     }).format(amount);
   };
 
-  const calculateProfitMargin = (revenue: number, cost: number) => {
-    if (revenue === 0) return 0;
-    return ((revenue - cost) / revenue) * 100;
-  };
-
   return (
     <Card className="w-full">
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-sm font-medium">Financial Summary</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-xl font-bold">Financial Summary</CardTitle>
         <Tabs
-          defaultValue={summary.timeRange}
-          onValueChange={handleTimeRangeChange}
-          className="space-y-4"
+          value={timeframe}
+          onValueChange={(v) => setTimeframe(v as typeof timeframe)}
+          className="w-[400px]"
         >
-          <TabsList className="grid grid-cols-4 h-8">
-            <TabsTrigger value="today" className="text-xs">
-              Today
-            </TabsTrigger>
-            <TabsTrigger value="week" className="text-xs">
-              Week
-            </TabsTrigger>
-            <TabsTrigger value="month" className="text-xs">
-              Month
-            </TabsTrigger>
-            <TabsTrigger value="all" className="text-xs">
-              All Time
-            </TabsTrigger>
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="today">Today</TabsTrigger>
+            <TabsTrigger value="week">Week</TabsTrigger>
+            <TabsTrigger value="month">Month</TabsTrigger>
+            <TabsTrigger value="all">All Time</TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <div className="flex justify-center items-center h-40">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        {isLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
           </div>
         ) : (
-          <Tabs defaultValue="combined" className="space-y-4">
-            <TabsList className="grid grid-cols-3 h-8">
-              <TabsTrigger value="combined" className="text-xs">
-                Combined
-              </TabsTrigger>
-              <TabsTrigger value="regular" className="text-xs">
-                Regular Products
-              </TabsTrigger>
-              <TabsTrigger value="outer" className="text-xs">
-                Outer Products
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="combined" className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Total Revenue</span>
-                    <div className="flex items-center">
-                      <DollarSign className="h-4 w-4 text-green-500 mr-1" />
-                      <span className="text-sm font-bold">
-                        {formatCurrency(summary.combined.revenue)}
-                      </span>
+          <div className="space-y-8">
+            {/* Overall Financial Stats */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-x-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Total Sales
+                      </p>
+                      <p className="text-2xl font-bold">
+                        {formatCurrency(financialData.totalSales)}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-green-100 rounded-full">
+                      <DollarSign className="w-6 h-6 text-green-600" />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Total Cost</span>
-                    <div className="flex items-center">
-                      <ArrowDownRight className="h-4 w-4 text-red-500 mr-1" />
-                      <span className="text-sm font-bold">
-                        {formatCurrency(summary.combined.cost)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Total Profit</span>
-                    <div className="flex items-center">
-                      <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
-                      <span className="text-sm font-bold text-green-600">
-                        {formatCurrency(summary.combined.profit)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Profit Margin</span>
+                  <div className="mt-4 flex items-center">
                     <Badge
-                      variant={
-                        summary.combined.profit > 0 ? "default" : "destructive"
-                      }
+                      variant="outline"
+                      className="bg-green-50 text-green-700 border-green-200"
                     >
-                      {calculateProfitMargin(
-                        summary.combined.revenue,
-                        summary.combined.cost,
-                      ).toFixed(2)}
-                      %
+                      <ArrowUpRight className="w-3 h-3 mr-1" />
+                      Revenue
                     </Badge>
                   </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-sm font-medium">Products Sold</span>
-                <div className="flex items-center">
-                  <Package className="h-4 w-4 text-blue-500 mr-1" />
-                  <span className="text-sm font-bold">
-                    {summary.combined.count}
-                  </span>
-                </div>
-              </div>
-            </TabsContent>
+                </CardContent>
+              </Card>
 
-            <TabsContent value="regular" className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Regular Revenue</span>
-                    <div className="flex items-center">
-                      <DollarSign className="h-4 w-4 text-green-500 mr-1" />
-                      <span className="text-sm font-bold">
-                        {formatCurrency(summary.regularProducts.revenue)}
-                      </span>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-x-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Total Costs
+                      </p>
+                      <p className="text-2xl font-bold">
+                        {formatCurrency(financialData.totalCosts)}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-red-100 rounded-full">
+                      <ArrowDownRight className="w-6 h-6 text-red-600" />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Regular Cost</span>
-                    <div className="flex items-center">
-                      <ArrowDownRight className="h-4 w-4 text-red-500 mr-1" />
-                      <span className="text-sm font-bold">
-                        {formatCurrency(summary.regularProducts.cost)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Regular Profit</span>
-                    <div className="flex items-center">
-                      <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
-                      <span className="text-sm font-bold text-green-600">
-                        {formatCurrency(summary.regularProducts.profit)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Profit Margin</span>
+                  <div className="mt-4 flex items-center">
                     <Badge
-                      variant={
-                        summary.regularProducts.profit > 0
-                          ? "default"
-                          : "destructive"
-                      }
+                      variant="outline"
+                      className="bg-red-50 text-red-700 border-red-200"
                     >
-                      {calculateProfitMargin(
-                        summary.regularProducts.revenue,
-                        summary.regularProducts.cost,
-                      ).toFixed(2)}
-                      %
+                      <ArrowDownRight className="w-3 h-3 mr-1" />
+                      Expenses
                     </Badge>
                   </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-sm font-medium">
-                  Regular Products Sold
-                </span>
-                <div className="flex items-center">
-                  <Package className="h-4 w-4 text-blue-500 mr-1" />
-                  <span className="text-sm font-bold">
-                    {summary.regularProducts.count}
-                  </span>
-                </div>
-              </div>
-            </TabsContent>
+                </CardContent>
+              </Card>
 
-            <TabsContent value="outer" className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Outer Revenue</span>
-                    <div className="flex items-center">
-                      <DollarSign className="h-4 w-4 text-green-500 mr-1" />
-                      <span className="text-sm font-bold">
-                        {formatCurrency(summary.outerProducts.revenue)}
-                      </span>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between space-x-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        Total Profit
+                      </p>
+                      <p className="text-2xl font-bold">
+                        {formatCurrency(financialData.totalProfit)}
+                      </p>
+                    </div>
+                    <div className="p-2 bg-blue-100 rounded-full">
+                      <TrendingUp className="w-6 h-6 text-blue-600" />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Outer Cost</span>
-                    <div className="flex items-center">
-                      <ArrowDownRight className="h-4 w-4 text-red-500 mr-1" />
-                      <span className="text-sm font-bold">
-                        {formatCurrency(summary.outerProducts.cost)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Outer Profit</span>
-                    <div className="flex items-center">
-                      <ArrowUpRight className="h-4 w-4 text-green-500 mr-1" />
-                      <span className="text-sm font-bold text-green-600">
-                        {formatCurrency(summary.outerProducts.profit)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Profit Margin</span>
+                  <div className="mt-4 flex items-center">
                     <Badge
-                      variant={
-                        summary.outerProducts.profit > 0
-                          ? "default"
-                          : "destructive"
-                      }
+                      variant="outline"
+                      className={`${financialData.totalProfit >= 0 ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-red-50 text-red-700 border-red-200"}`}
                     >
-                      {calculateProfitMargin(
-                        summary.outerProducts.revenue,
-                        summary.outerProducts.cost,
-                      ).toFixed(2)}
-                      %
+                      {financialData.totalProfit >= 0 ? (
+                        <ArrowUpRight className="w-3 h-3 mr-1" />
+                      ) : (
+                        <ArrowDownRight className="w-3 h-3 mr-1" />
+                      )}
+                      {financialData.totalProfit >= 0 ? "Profit" : "Loss"}
                     </Badge>
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Detailed Breakdown */}
+            <Tabs defaultValue="overview" className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="regular">Regular Products</TabsTrigger>
+                <TabsTrigger value="outer">Outer Products</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="overview" className="mt-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Card>
+                    <CardContent className="p-6">
+                      <h3 className="text-lg font-medium mb-4">
+                        Payment Status
+                      </h3>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">
+                            Received Payments
+                          </span>
+                          <span className="font-medium text-green-600">
+                            {formatCurrency(financialData.receivedPayments)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">
+                            Pending Payments
+                          </span>
+                          <span className="font-medium text-amber-600">
+                            {formatCurrency(financialData.pendingPayments)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t">
+                          <span className="font-medium">Total</span>
+                          <span className="font-medium">
+                            {formatCurrency(
+                              financialData.receivedPayments +
+                                financialData.pendingPayments,
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardContent className="p-6">
+                      <h3 className="text-lg font-medium mb-4">
+                        Product Type Breakdown
+                      </h3>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">
+                            Regular Products Revenue
+                          </span>
+                          <span className="font-medium">
+                            {formatCurrency(financialData.totalRegularSales)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">
+                            Outer Products Revenue
+                          </span>
+                          <span className="font-medium">
+                            {formatCurrency(financialData.totalOuterSales)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t">
+                          <span className="font-medium">Total Revenue</span>
+                          <span className="font-medium">
+                            {formatCurrency(financialData.totalSales)}
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t">
-                <span className="text-sm font-medium">Outer Products Sold</span>
-                <div className="flex items-center">
-                  <Package className="h-4 w-4 text-blue-500 mr-1" />
-                  <span className="text-sm font-bold">
-                    {summary.outerProducts.count}
-                  </span>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
+              </TabsContent>
+
+              <TabsContent value="regular" className="mt-4">
+                <Card>
+                  <CardContent className="p-6">
+                    <h3 className="text-lg font-medium mb-4">
+                      Regular Products Financial Details
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Total Sales</span>
+                        <span className="font-medium">
+                          {formatCurrency(financialData.totalRegularSales)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Total Costs</span>
+                        <span className="font-medium">
+                          {formatCurrency(financialData.totalRegularCosts)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t">
+                        <span className="font-medium">Total Profit</span>
+                        <span
+                          className={`font-medium ${financialData.totalRegularProfit >= 0 ? "text-green-600" : "text-red-600"}`}
+                        >
+                          {formatCurrency(financialData.totalRegularProfit)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Profit Margin</span>
+                        <span
+                          className={`font-medium ${financialData.totalRegularProfit >= 0 ? "text-green-600" : "text-red-600"}`}
+                        >
+                          {financialData.totalRegularSales > 0
+                            ? `${Math.round(
+                                (financialData.totalRegularProfit /
+                                  financialData.totalRegularSales) *
+                                  100,
+                              )}%`
+                            : "0%"}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="outer" className="mt-4">
+                <Card>
+                  <CardContent className="p-6">
+                    <h3 className="text-lg font-medium mb-4">
+                      Outer Products Financial Details
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Total Sales</span>
+                        <span className="font-medium">
+                          {formatCurrency(financialData.totalOuterSales)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Total Costs</span>
+                        <span className="font-medium">
+                          {formatCurrency(financialData.totalOuterCosts)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t">
+                        <span className="font-medium">Total Profit</span>
+                        <span
+                          className={`font-medium ${financialData.totalOuterProfit >= 0 ? "text-green-600" : "text-red-600"}`}
+                        >
+                          {formatCurrency(financialData.totalOuterProfit)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600">Profit Margin</span>
+                        <span
+                          className={`font-medium ${financialData.totalOuterProfit >= 0 ? "text-green-600" : "text-red-600"}`}
+                        >
+                          {financialData.totalOuterSales > 0
+                            ? `${Math.round(
+                                (financialData.totalOuterProfit /
+                                  financialData.totalOuterSales) *
+                                  100,
+                              )}%`
+                            : "0%"}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
         )}
       </CardContent>
     </Card>

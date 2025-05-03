@@ -543,10 +543,11 @@ export function UnifiedSellProductForm({
         if (updateError) throw updateError;
       } else {
         // Determine payment status based on remaining amount
+        const advancePaymentAmount = parseFloat(advancePayment) || 0;
         const paymentStatus =
-          parseFloat(advancePayment) >= totalAmount
+          advancePaymentAmount >= totalAmount
             ? "paid"
-            : parseFloat(advancePayment) > 0
+            : advancePaymentAmount > 0
               ? "partially_paid"
               : "unpaid";
 
@@ -556,7 +557,7 @@ export function UnifiedSellProductForm({
           .insert({
             invoice_number: invoiceNumber,
             total_amount: totalAmount,
-            advance_payment: parseFloat(advancePayment) || 0,
+            advance_payment: advancePaymentAmount,
             remaining_amount: remainingAmount,
             status: paymentStatus,
             shop_id: shopId,
@@ -594,6 +595,7 @@ export function UnifiedSellProductForm({
 
       // Process outer products - do NOT add them to the products database
       // We'll only track them in the invoice_items table with is_outer_product=true
+      // Outer product income is only calculated when payment is received
       const outerProducts = cartItems.filter((item) => item.type === "outer");
       // We're intentionally not adding outer products to the products table
       // This is to keep them separate from the regular inventory
@@ -637,11 +639,7 @@ export function UnifiedSellProductForm({
       // Create invoice items for all products
       const invoiceItems = cartItems.map((item) => {
         // For outer products, only record profit if payment is received
-        const recordedBuyingPrice =
-          item.type === "outer" && parseFloat(advancePayment) <= 0
-            ? item.selling_price // Temporarily set buying price equal to selling price (no profit)
-            : item.buying_price || 0;
-
+        // Always store the actual buying price, but we'll calculate profit separately based on payments
         return {
           invoice_id: invoiceId,
           product_id: item.type === "regular" ? item.product_id : null,
@@ -657,7 +655,7 @@ export function UnifiedSellProductForm({
           discount_type: item.discount_type || "percentage",
           discount_amount: item.discount_amount || 0,
           is_outer_product: item.type === "outer",
-          buying_price: recordedBuyingPrice,
+          buying_price: item.buying_price || 0, // Always store the actual buying price
           size: item.size || null,
           color: item.color || null,
           model: item.model || null,
@@ -670,6 +668,25 @@ export function UnifiedSellProductForm({
 
       if (itemsError) throw itemsError;
 
+      // Create payment record if advance payment is provided
+      const advancePaymentAmount = parseFloat(advancePayment) || 0;
+      if (advancePaymentAmount > 0) {
+        const { error: paymentError } = await supabase.from("payments").insert({
+          invoice_id: invoiceId,
+          amount: advancePaymentAmount,
+          payment_method: paymentMethod,
+          payment_date: new Date().toISOString(),
+          notes: "Advance payment during sale",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+        if (paymentError) {
+          console.error("Error creating payment record:", paymentError);
+          // Don't throw error here, just log it - we don't want to fail the whole transaction
+        }
+      }
+
       toast({
         title: existingInvoiceId
           ? "Products added to invoice"
@@ -679,7 +696,13 @@ export function UnifiedSellProductForm({
           : `Invoice #${invoiceNumber} has been generated successfully`,
       });
 
-      navigate(`/dashboard/invoices/${invoiceNumber}`);
+      // Navigate to the invoice detail page using the invoice ID instead of invoice number
+      if (invoiceId) {
+        navigate(`/dashboard/invoices/${invoiceId}`);
+      } else {
+        // Fallback to using invoice number if ID is not available
+        navigate(`/dashboard/invoices/${invoiceNumber}`);
+      }
     } catch (error) {
       console.error("Error processing sale:", error);
       let errorMessage = "An unknown error occurred";
