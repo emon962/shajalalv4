@@ -551,12 +551,44 @@ export function UnifiedSellProductForm({
               ? "partially_paid"
               : "unpaid";
 
-        // Create new invoice
+        // Calculate separate totals for regular and outer products
+        const regularProductsTotal = cartItems
+          .filter((item) => item.type === "regular")
+          .reduce(
+            (sum, item) => sum + (item.subtotal - item.discount_amount),
+            0,
+          );
+
+        const outerProductsTotal = cartItems
+          .filter((item) => item.type === "outer")
+          .reduce(
+            (sum, item) => sum + (item.subtotal - item.discount_amount),
+            0,
+          );
+
+        // Apply tax and discount proportionally
+        const regularProportion =
+          totalAmount > 0
+            ? regularProductsTotal / (regularProductsTotal + outerProductsTotal)
+            : 0;
+        const regularTax = taxAmount * regularProportion;
+        const regularDiscount = discountAmount * regularProportion;
+
+        // For dashboard income calculation, we need to separate regular and outer products
+        // The total_amount should only include regular products for income calculation purposes
+        // Outer products will be tracked separately in invoice_items with is_outer_product flag
+
+        // Calculate the total amount WITHOUT outer products for income calculation
+        const regularOnlyTotal =
+          regularProductsTotal - regularDiscount + regularTax;
+
         const { data: invoiceData, error: invoiceError } = await supabase
           .from("invoices")
           .insert({
             invoice_number: invoiceNumber,
-            total_amount: totalAmount,
+            // Store the regular products total only in total_amount for income calculation
+            total_amount: regularOnlyTotal,
+            // Store the full amount including outer products in the notes for display purposes
             advance_payment: advancePaymentAmount,
             remaining_amount: remainingAmount,
             status: paymentStatus,
@@ -565,7 +597,7 @@ export function UnifiedSellProductForm({
             customer_phone: customerPhone || null,
             customer_id: customerId,
             invoice_type: "sales",
-            notes: `Discount: ${discountAmount.toFixed(2)}, Tax: ${taxAmount.toFixed(2)}`,
+            notes: `Discount: ${discountAmount.toFixed(2)}, Tax: ${taxAmount.toFixed(2)}, OuterProductsTotal: ${outerProductsTotal.toFixed(2)}, FullTotal: ${totalAmount.toFixed(2)}`,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })

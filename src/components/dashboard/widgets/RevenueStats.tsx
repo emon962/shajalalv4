@@ -498,8 +498,6 @@ export function RevenueStats() {
         const paymentsReceived = currentPaymentMap[invoice.id] || 0;
         const totalPaymentReceived = advancePayment + paymentsReceived;
 
-        if (totalPaymentReceived <= 0) return; // Skip if no payment received
-
         const invoiceItems = invoiceItemsMap[invoice.id] || {
           outer: [],
           regular: [],
@@ -520,17 +518,21 @@ export function RevenueStats() {
 
         if (invoiceTotal <= 0) return; // Skip if invoice has no value
 
-        // For regular products, distribute payment proportionally
+        // For regular products, count income immediately regardless of payment
+        // But ONLY for regular products, not outer products
         if (regularItemsTotal > 0) {
-          const regularProportion = regularItemsTotal / invoiceTotal;
-          currentRegularIncome += totalPaymentReceived * regularProportion;
+          currentRegularIncome += regularItemsTotal;
         }
 
-        // For outer products, only count income when payment is received
-        // The full payment amount is distributed proportionally to outer products
-        if (outerItemsTotal > 0) {
+        // For outer products, ONLY count income when payment is received
+        if (outerItemsTotal > 0 && totalPaymentReceived > 0) {
+          // Calculate what portion of the payment should be allocated to outer products
           const outerProportion = outerItemsTotal / invoiceTotal;
-          currentOuterIncome += totalPaymentReceived * outerProportion;
+          const outerPaymentShare = Math.min(
+            outerItemsTotal,
+            totalPaymentReceived * outerProportion,
+          );
+          currentOuterIncome += outerPaymentShare;
         }
       });
 
@@ -574,8 +576,6 @@ export function RevenueStats() {
         const paymentsReceived = prevPaymentMap[invoice.id] || 0;
         const totalPaymentReceived = advancePayment + paymentsReceived;
 
-        if (totalPaymentReceived <= 0) return; // Skip if no payment received
-
         const invoiceItems = prevInvoiceItemsMap[invoice.id] || {
           outer: [],
           regular: [],
@@ -596,15 +596,21 @@ export function RevenueStats() {
 
         if (invoiceTotal <= 0) return; // Skip if invoice has no value
 
-        // Distribute payment proportionally between regular and outer products
+        // For regular products, count income immediately regardless of payment
+        // But ONLY for regular products, not outer products
         if (regularItemsTotal > 0) {
-          const regularProportion = regularItemsTotal / invoiceTotal;
-          prevRegularIncome += totalPaymentReceived * regularProportion;
+          prevRegularIncome += regularItemsTotal;
         }
 
-        if (outerItemsTotal > 0) {
+        // For outer products, ONLY count income when payment is received
+        if (outerItemsTotal > 0 && totalPaymentReceived > 0) {
+          // Calculate what portion of the payment should be allocated to outer products
           const outerProportion = outerItemsTotal / invoiceTotal;
-          prevOuterIncome += totalPaymentReceived * outerProportion;
+          const outerPaymentShare = Math.min(
+            outerItemsTotal,
+            totalPaymentReceived * outerProportion,
+          );
+          prevOuterIncome += outerPaymentShare;
         }
       });
 
@@ -622,6 +628,19 @@ export function RevenueStats() {
         0,
       );
 
+      // Include outer product costs in expenses
+      const currentOuterProductExpenses = (currentInvoiceItems || []).reduce(
+        (sum, item) => {
+          if (item.is_outer_product) {
+            return (
+              sum + Number(item.buying_price || 0) * Number(item.quantity || 0)
+            );
+          }
+          return sum;
+        },
+        0,
+      );
+
       // Calculate other expenses
       const currentOthersExpenses = (currentOthersCosts || []).reduce(
         (sum, item) => sum + Number(item.amount || 0),
@@ -634,7 +653,10 @@ export function RevenueStats() {
       );
 
       const totalCurrentExpenses =
-        currentProductExpenses + currentOthersExpenses + currentSalaryExpenses;
+        currentProductExpenses +
+        currentOthersExpenses +
+        currentSalaryExpenses +
+        currentOuterProductExpenses;
       setTotalExpenses(totalCurrentExpenses);
 
       const prevProductExpenses = (prevProductInvoices || []).reduce(
@@ -642,6 +664,19 @@ export function RevenueStats() {
           const paymentsMade = prevPaymentMap[invoice.id] || 0;
           const advance = Number(invoice.advance_payment || 0);
           return sum + paymentsMade + advance;
+        },
+        0,
+      );
+
+      // Include previous period outer product costs in expenses
+      const prevOuterProductExpenses = (prevInvoiceItems || []).reduce(
+        (sum, item) => {
+          if (item.is_outer_product) {
+            return (
+              sum + Number(item.buying_price || 0) * Number(item.quantity || 0)
+            );
+          }
+          return sum;
         },
         0,
       );
@@ -657,7 +692,10 @@ export function RevenueStats() {
       );
 
       const totalPrevExpenses =
-        prevProductExpenses + prevOthersExpenses + prevSalaryExpenses;
+        prevProductExpenses +
+        prevOthersExpenses +
+        prevSalaryExpenses +
+        prevOuterProductExpenses;
 
       // Calculate Net Earnings
       const currentNetEarnings = currentIncome - totalCurrentExpenses;
@@ -838,19 +876,19 @@ export function RevenueStats() {
           Combined Financial Summary
         </h3>
         <p className="text-sm text-gray-600 mb-4">
-          Total figures including both regular and outer products
+          Separate figures for regular and outer products
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card className="bg-white border-blue-100">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-medium text-blue-800">
-                Total Income
+                Regular Products Income
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-900">
-                ${(dailyIncome + outerProductStats.income).toFixed(2)}
+                ${dailyIncome.toFixed(2)}
               </div>
               <div className="mt-1 flex items-center text-sm">
                 {incomeChange.type === "increase" ? (
@@ -875,12 +913,12 @@ export function RevenueStats() {
           <Card className="bg-white border-blue-100">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-medium text-blue-800">
-                Total Expenses
+                Regular Products Expenses
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-blue-900">
-                ${(totalExpenses + outerProductStats.expenses).toFixed(2)}
+                ${totalExpenses.toFixed(2)}
               </div>
               <div className="mt-1 flex items-center text-sm">
                 {expensesChange.type === "increase" ? (
@@ -905,12 +943,12 @@ export function RevenueStats() {
           <Card className="bg-white border-blue-100">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-medium text-blue-800">
-                Total Net Earnings
+                Regular Products Net Earnings
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">
-                ${(netEarnings + outerProductStats.profit).toFixed(2)}
+                ${netEarnings.toFixed(2)}
               </div>
               <div className="mt-1 flex items-center text-sm">
                 {earningsChange.type === "increase" ? (
@@ -961,6 +999,10 @@ export function RevenueStats() {
           <h3 className="text-lg font-medium mb-3 text-blue-800">
             Outer Products
           </h3>
+          <div className="text-sm text-blue-600 mb-3">
+            Note: Outer product costs are now included in the total expenses
+            calculation.
+          </div>
           <div className="grid grid-cols-1 gap-3">
             <Card className="bg-white border-blue-100">
               <CardHeader className="pb-2">
@@ -1114,3 +1156,6 @@ export function RevenueStats() {
     </div>
   );
 }
+
+// Add default export for the RevenueStats component
+export default RevenueStats;

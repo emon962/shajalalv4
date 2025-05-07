@@ -24,7 +24,7 @@ interface FinancialData {
   receivedPayments: number;
 }
 
-export default function FinancialSummary() {
+export function FinancialSummary() {
   const [financialData, setFinancialData] = useState<FinancialData>({
     totalSales: 0,
     totalCosts: 0,
@@ -131,13 +131,6 @@ export default function FinancialSummary() {
 
         // Track received vs pending payments
         receivedPayments += totalPaymentReceived;
-        pendingPayments += Math.max(
-          0,
-          invoice.total_amount - totalPaymentReceived,
-        );
-
-        // Skip if no payment received
-        if (totalPaymentReceived <= 0) return;
 
         // Calculate total invoice value and separate regular vs outer products
         let regularItemsTotal = 0;
@@ -158,6 +151,16 @@ export default function FinancialSummary() {
           }
         });
 
+        // For pending payments, only include regular product amounts that haven't been paid yet
+        // Do NOT include outer products in pending payments calculation
+        pendingPayments += Math.max(
+          0,
+          invoice.total_amount - outerItemsTotal - totalPaymentReceived,
+        );
+
+        // Skip if no payment received
+        if (totalPaymentReceived <= 0) return;
+
         const invoiceTotal = regularItemsTotal + outerItemsTotal;
 
         // Skip if invoice has no value
@@ -169,15 +172,15 @@ export default function FinancialSummary() {
           totalPaymentReceived / invoice.total_amount,
         );
 
-        // Distribute payment proportionally between regular and outer products
+        // For regular products, count income based on the invoice amount
         if (regularItemsTotal > 0) {
-          const regularProportion = regularItemsTotal / invoiceTotal;
-          const regularPaymentShare = totalPaymentReceived * regularProportion;
-          totalRegularSales += regularPaymentShare;
-          totalRegularCosts += regularItemsCost * paymentRatio;
+          // Only count regular products in total sales immediately
+          totalRegularSales += regularItemsTotal;
+          totalRegularCosts += regularItemsCost;
         }
 
-        if (outerItemsTotal > 0) {
+        // For outer products, ONLY count income when payment is received
+        if (outerItemsTotal > 0 && totalPaymentReceived > 0) {
           const outerProportion = outerItemsTotal / invoiceTotal;
           const outerPaymentShare = totalPaymentReceived * outerProportion;
           totalOuterSales += outerPaymentShare;
@@ -254,7 +257,7 @@ export default function FinancialSummary() {
                         Total Sales
                       </p>
                       <p className="text-2xl font-bold">
-                        {formatCurrency(financialData.totalSales)}
+                        {formatCurrency(financialData.totalRegularSales)}
                       </p>
                     </div>
                     <div className="p-2 bg-green-100 rounded-full">
@@ -267,7 +270,7 @@ export default function FinancialSummary() {
                       className="bg-green-50 text-green-700 border-green-200"
                     >
                       <ArrowUpRight className="w-3 h-3 mr-1" />
-                      Revenue
+                      Regular Products Revenue
                     </Badge>
                   </div>
                 </CardContent>
@@ -509,3 +512,5 @@ export default function FinancialSummary() {
     </Card>
   );
 }
+
+export default FinancialSummary;
