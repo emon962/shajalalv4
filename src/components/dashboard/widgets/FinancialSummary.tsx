@@ -172,11 +172,15 @@ export function FinancialSummary() {
           totalPaymentReceived / invoice.total_amount,
         );
 
-        // For regular products, count income based on the invoice amount
+        // For regular products, only count advance payments in income
         if (regularItemsTotal > 0) {
-          // Only count regular products in total sales immediately
-          totalRegularSales += regularItemsTotal;
-          totalRegularCosts += regularItemsCost;
+          // Only count advance payments for regular products
+          const regularProportion = regularItemsTotal / invoiceTotal;
+          const regularAdvancePayment =
+            Number(invoice.advance_payment || 0) * regularProportion;
+          totalRegularSales += regularAdvancePayment;
+          totalRegularCosts +=
+            regularItemsCost * (regularAdvancePayment / regularItemsTotal);
         }
 
         // For outer products, ONLY count income when payment is received

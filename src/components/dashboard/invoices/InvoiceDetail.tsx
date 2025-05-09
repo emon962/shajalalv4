@@ -1019,7 +1019,16 @@ export function InvoiceDetail() {
                       Description
                     </th>
                     <th className="py-2 px-3 text-left font-semibold text-blue-800">
-                      Specifications
+                      Watt
+                    </th>
+                    <th className="py-2 px-3 text-left font-semibold text-blue-800">
+                      Color
+                    </th>
+                    <th className="py-2 px-3 text-left font-semibold text-blue-800">
+                      Model
+                    </th>
+                    <th className="py-2 px-3 text-left font-semibold text-blue-800">
+                      Size
                     </th>
                     <th className="py-2 px-3 text-center font-semibold text-blue-800">
                       Qty
@@ -1076,123 +1085,88 @@ export function InvoiceDetail() {
                         </td>
                         <td className="py-3 px-3">
                           {isEditing ? (
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <Label className="text-[9px]">Watt</Label>
-                                <Input
-                                  type="number"
-                                  value={item.product_watt || ""}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      index,
-                                      "product_watt",
-                                      e.target.value
-                                        ? Number(e.target.value)
-                                        : null,
-                                    )
-                                  }
-                                  className="text-xs h-7"
-                                  placeholder="Watt"
-                                  min="0"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[9px]">Size</Label>
-                                <Input
-                                  value={item.product_size || ""}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      index,
-                                      "product_size",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="text-xs h-7"
-                                  placeholder="Size"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[9px]">Color</Label>
-                                <Input
-                                  value={item.product_color || ""}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      index,
-                                      "product_color",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="text-xs h-7"
-                                  placeholder="Color"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-[9px]">Model</Label>
-                                <Input
-                                  value={item.product_model || ""}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      index,
-                                      "product_model",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="text-xs h-7"
-                                  placeholder="Model"
-                                />
-                              </div>
-                            </div>
+                            <Input
+                              type="number"
+                              value={item.product_watt || ""}
+                              onChange={(e) =>
+                                handleItemChange(
+                                  index,
+                                  "product_watt",
+                                  e.target.value
+                                    ? Number(e.target.value)
+                                    : null,
+                                )
+                              }
+                              className="text-xs h-7"
+                              placeholder="Watt"
+                              min="0"
+                            />
                           ) : (
-                            <div className="text-xs space-y-1">
-                              {item.product_watt && (
-                                <div className="flex items-center gap-1">
-                                  <span className="font-medium text-gray-600">
-                                    Watt:
-                                  </span>
-                                  <span className="text-gray-800">
-                                    {item.product_watt}W
-                                  </span>
-                                </div>
-                              )}
-                              {item.product_size && (
-                                <div className="flex items-center gap-1">
-                                  <span className="font-medium text-gray-600">
-                                    Size:
-                                  </span>
-                                  <span className="text-gray-800">
-                                    {item.product_size}
-                                  </span>
-                                </div>
-                              )}
-                              {item.product_color && (
-                                <div className="flex items-center gap-1">
-                                  <span className="font-medium text-gray-600">
-                                    Color:
-                                  </span>
-                                  <span className="text-gray-800">
-                                    {item.product_color}
-                                  </span>
-                                </div>
-                              )}
-                              {item.product_model && (
-                                <div className="flex items-center gap-1">
-                                  <span className="font-medium text-gray-600">
-                                    Model:
-                                  </span>
-                                  <span className="text-gray-800">
-                                    {item.product_model}
-                                  </span>
-                                </div>
-                              )}
-                              {!item.product_watt &&
-                                !item.product_size &&
-                                !item.product_color &&
-                                !item.product_model && (
-                                  <span className="text-gray-400">
-                                    No specifications
-                                  </span>
-                                )}
-                            </div>
+                            <span className="text-gray-800">
+                              {item.product_watt
+                                ? `${item.product_watt}W`
+                                : "-"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {isEditing ? (
+                            <Input
+                              value={item.product_color || ""}
+                              onChange={(e) =>
+                                handleItemChange(
+                                  index,
+                                  "product_color",
+                                  e.target.value,
+                                )
+                              }
+                              className="text-xs h-7"
+                              placeholder="Color"
+                            />
+                          ) : (
+                            <span className="text-gray-800">
+                              {item.product_color || "-"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {isEditing ? (
+                            <Input
+                              value={item.product_model || ""}
+                              onChange={(e) =>
+                                handleItemChange(
+                                  index,
+                                  "product_model",
+                                  e.target.value,
+                                )
+                              }
+                              className="text-xs h-7"
+                              placeholder="Model"
+                            />
+                          ) : (
+                            <span className="text-gray-800">
+                              {item.product_model || "-"}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {isEditing ? (
+                            <Input
+                              value={item.product_size || ""}
+                              onChange={(e) =>
+                                handleItemChange(
+                                  index,
+                                  "product_size",
+                                  e.target.value,
+                                )
+                              }
+                              className="text-xs h-7"
+                              placeholder="Size"
+                            />
+                          ) : (
+                            <span className="text-gray-800">
+                              {item.product_size || "-"}
+                            </span>
                           )}
                         </td>
                         <td className="py-3 px-3 text-center">

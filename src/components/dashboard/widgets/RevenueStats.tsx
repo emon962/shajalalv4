@@ -518,10 +518,11 @@ export function RevenueStats() {
 
         if (invoiceTotal <= 0) return; // Skip if invoice has no value
 
-        // For regular products, count income immediately regardless of payment
-        // But ONLY for regular products, not outer products
+        // For regular products, only count advance payments in income
         if (regularItemsTotal > 0) {
-          currentRegularIncome += regularItemsTotal;
+          const regularProportion = regularItemsTotal / invoiceTotal;
+          const regularAdvancePayment = advancePayment * regularProportion;
+          currentRegularIncome += regularAdvancePayment;
         }
 
         // For outer products, ONLY count income when payment is received
@@ -596,10 +597,11 @@ export function RevenueStats() {
 
         if (invoiceTotal <= 0) return; // Skip if invoice has no value
 
-        // For regular products, count income immediately regardless of payment
-        // But ONLY for regular products, not outer products
+        // For regular products, only count advance payments in income
         if (regularItemsTotal > 0) {
-          prevRegularIncome += regularItemsTotal;
+          const regularProportion = regularItemsTotal / invoiceTotal;
+          const regularAdvancePayment = advancePayment * regularProportion;
+          prevRegularIncome += regularAdvancePayment;
         }
 
         // For outer products, ONLY count income when payment is received

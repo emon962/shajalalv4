@@ -727,7 +727,7 @@ export function ChalanInvoice({
                       <th className="py-1 px-2 text-left font-semibold text-gray-700 w-[5%]">
                         No.
                       </th>
-                      <th className="py-1 px-2 text-left font-semibold text-gray-700 w-[35%]">
+                      <th className="py-1 px-2 text-left font-semibold text-gray-700 w-[25%]">
                         Product
                       </th>
                       <th className="py-1 px-2 text-left font-semibold text-gray-700 w-[10%]">
